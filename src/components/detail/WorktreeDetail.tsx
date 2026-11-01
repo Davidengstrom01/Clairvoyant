@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { applyHunk, discard, fileDiff, removeWorktree, restoreTrash, stage, unstage } from "../../lib/api";
 import { plural } from "../../lib/format";
+import { buildTree, folderPaths } from "../../lib/tree";
 import { useGuard, useNotify } from "../../lib/notify";
 import type { FileChange, FileDiff, Hunk, HunkAction, WorktreeSummary } from "../../lib/types";
 import {
@@ -14,6 +15,7 @@ import {
   type FileList as ListKind,
 } from "../../lib/worktree";
 import { DiffView } from "../DiffView";
+import { toggled } from "../FileTree";
 import { StashDialog } from "../dialogs/StashDialog";
 import { SwitchBranchDialog } from "../dialogs/SwitchBranchDialog";
 import { JumpOuts } from "../JumpOuts";
@@ -48,6 +50,11 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
   const [diffError, setDiffError] = useState<string | null>(null);
   const [panel, setPanel] = useState<"stashes" | "trash">("stashes");
   const [dialog, setDialog] = useState<"stash" | "switch" | null>(null);
+  // Folded folders per list, so folding in Changes doesn't fold Staged.
+  const [collapsed, setCollapsed] = useState<Record<ListKind, Set<string>>>({
+    unstaged: new Set(),
+    staged: new Set(),
+  });
 
   // Fall back to the first file when the chosen one was staged, committed or discarded.
   const chosenFile = chosen && lists[chosen.list].find((f) => f.path === chosen.path);
@@ -140,6 +147,25 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
   const stageable = lists.unstaged.filter((f) => f.kind !== "conflicted");
   const discardable = lists.unstaged.filter((f) => f.kind !== "conflicted");
 
+  const toggleFolder = (list: ListKind) => (folder: string) =>
+    setCollapsed((c) => ({ ...c, [list]: toggled(c[list], folder) }));
+
+  /** "Collapse" folds every folder; once anything is folded it offers "Expand". */
+  const foldButton = (list: ListKind) => {
+    const folders = folderPaths(buildTree(lists[list]));
+    if (folders.length === 0) return null;
+    const anyFolded = collapsed[list].size > 0;
+    return (
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={() => setCollapsed((c) => ({ ...c, [list]: new Set(anyFolded ? [] : folders) }))}
+      >
+        {anyFolded ? "Expand" : "Collapse"}
+      </Button>
+    );
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 px-4 py-2 dark:border-zinc-800">
@@ -174,6 +200,7 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
               title={`Changes (${lists.unstaged.length})`}
               actions={
                 <>
+                  {foldButton("unstaged")}
                   <Button size="sm" variant="danger" disabled={discardable.length === 0} onClick={() => discardFiles(discardable)}>
                     Discard all
                   </Button>
@@ -191,29 +218,36 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
                 list="unstaged"
                 files={lists.unstaged}
                 selected={selection?.list === "unstaged" ? selection.path : null}
+                collapsed={collapsed.unstaged}
+                onToggleFolder={toggleFolder("unstaged")}
                 onSelect={(f) => setChosen({ list: "unstaged", path: f.path })}
-                onStage={(f) => act(() => stage(path, [f.path]))}
-                onDiscard={(f) => discardFiles([f])}
+                onStage={(targets) => act(() => stage(path, targets.map((f) => f.path)))}
+                onDiscard={discardFiles}
               />
             </Section>
             <Section
               title={`Staged (${lists.staged.length})`}
               actions={
-                <Button
-                  size="sm"
-                  disabled={lists.staged.length === 0}
-                  onClick={() => act(() => unstage(path, unstagePaths(lists.staged)))}
-                >
-                  Unstage all
-                </Button>
+                <>
+                  {foldButton("staged")}
+                  <Button
+                    size="sm"
+                    disabled={lists.staged.length === 0}
+                    onClick={() => act(() => unstage(path, unstagePaths(lists.staged)))}
+                  >
+                    Unstage all
+                  </Button>
+                </>
               }
             >
               <FileList
                 list="staged"
                 files={lists.staged}
                 selected={selection?.list === "staged" ? selection.path : null}
+                collapsed={collapsed.staged}
+                onToggleFolder={toggleFolder("staged")}
                 onSelect={(f) => setChosen({ list: "staged", path: f.path })}
-                onUnstage={(f) => act(() => unstage(path, unstagePaths([f])))}
+                onUnstage={(targets) => act(() => unstage(path, unstagePaths(targets)))}
               />
             </Section>
           </div>
@@ -255,7 +289,7 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
               {diffError ? (
                 <p className="p-4 text-sm text-red-600">{diffError}</p>
               ) : diff ? (
-                <DiffView diff={diff} hunkActions={hunkActions} />
+                <DiffView diff={diff} path={selectedFile.path} hunkActions={hunkActions} />
               ) : (
                 <p className="p-4 text-sm text-zinc-500">Loading…</p>
               )}

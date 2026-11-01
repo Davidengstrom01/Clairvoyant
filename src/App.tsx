@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { addRepo, fetchRepo, listRepos, removeRepo, repoOverview, worktreeSummary } from "./lib/api";
 import { NotifyProvider, useGuard, useNotify } from "./lib/notify";
+import { useTheme, type ThemePref } from "./lib/theme";
 import type { RegisteredRepo, RepoChange } from "./lib/types";
 import { folderName } from "./lib/worktree";
 import { BranchesView } from "./components/branches/BranchesView";
@@ -47,6 +48,34 @@ function useCoalesce() {
       pending.current.delete(key);
     })();
   }, []);
+}
+
+function ThemeSwitch() {
+  const [theme, setTheme] = useTheme();
+  const options: [ThemePref, string][] = [
+    ["light", "Light"],
+    ["dark", "Dark"],
+    ["system", "System"],
+  ];
+  return (
+    <div role="radiogroup" aria-label="Theme" className="flex rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700">
+      {options.map(([value, label]) => (
+        <button
+          key={value}
+          role="radio"
+          aria-checked={theme === value}
+          onClick={() => setTheme(value)}
+          className={`rounded px-2 py-0.5 text-xs font-medium ${
+            theme === value
+              ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 function Shell() {
@@ -189,7 +218,8 @@ function Shell() {
         <h1 className="mr-3 text-lg font-bold tracking-tight">Clairvoyant</h1>
         {tab("dashboard", "Worktrees")}
         {tab("branches", "Branches")}
-        <div className="ml-auto flex gap-1">
+        <div className="ml-auto flex items-center gap-1">
+          <ThemeSwitch />
           <Button size="sm" variant="ghost" onClick={refreshAll} title="⌘R">
             Refresh
           </Button>

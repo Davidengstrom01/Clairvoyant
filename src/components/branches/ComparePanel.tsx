@@ -3,6 +3,7 @@ import { compare, compareDiff } from "../../lib/api";
 import { plural, relativeTime } from "../../lib/format";
 import type { Branch, Comparison, FileDiff } from "../../lib/types";
 import { DiffView } from "../DiffView";
+import { FileTree, toggled } from "../FileTree";
 import { Button, inputClass } from "../ui";
 
 /** What a pull request from `head` into `base` would contain. Read-only. */
@@ -22,6 +23,7 @@ export function ComparePanel({
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setComparison(null);
@@ -90,23 +92,27 @@ export function ComparePanel({
               ))}
             </ul>
             <h4 className="px-3 pt-3 text-xs font-semibold text-zinc-500 uppercase">Files</h4>
-            <ul>
-              {comparison.files.map((f) => (
+            <FileTree
+              items={comparison.files}
+              collapsed={collapsed}
+              onToggle={(folder) => setCollapsed((c) => toggled(c, folder))}
+              renderFile={(f, name, indent) => (
                 <li
                   key={f.path}
                   onClick={() => setFile(f.path)}
-                  className={`flex cursor-pointer gap-2 px-3 py-1 ${file === f.path ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}
+                  style={{ paddingLeft: indent }}
+                  className={`flex cursor-pointer gap-2 py-0.5 pr-3 ${file === f.path ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}
                 >
-                  <span className="w-3 font-mono text-xs">{f.status}</span>
+                  <span className="w-3 shrink-0 text-center font-mono text-xs">{f.status}</span>
                   <span className="truncate" title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}>
-                    {f.path}
+                    {name}
                   </span>
                 </li>
-              ))}
-            </ul>
+              )}
+            />
           </div>
           <div className="min-h-0 overflow-y-auto">
-            {diff ? <DiffView diff={diff} /> : <p className="p-4 text-sm text-zinc-500">Pick a file to see its diff.</p>}
+            {diff && file ? <DiffView diff={diff} path={file} /> : <p className="p-4 text-sm text-zinc-500">Pick a file to see its diff.</p>}
           </div>
         </div>
       )}

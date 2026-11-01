@@ -1,5 +1,6 @@
 import type { FileChange } from "../../lib/types";
 import { statusLetter, type FileList as ListKind } from "../../lib/worktree";
+import { FileTree } from "../FileTree";
 import { Button } from "../ui";
 
 const letterColor: Record<string, string> = {
@@ -15,75 +16,76 @@ interface Props {
   list: ListKind;
   files: FileChange[];
   selected: string | null;
+  collapsed: Set<string>;
+  onToggleFolder: (path: string) => void;
   onSelect: (file: FileChange) => void;
-  onStage?: (file: FileChange) => void;
-  onUnstage?: (file: FileChange) => void;
-  onDiscard?: (file: FileChange) => void;
+  /** Each action takes one file, or every file under a folder. */
+  onStage?: (files: FileChange[]) => void;
+  onUnstage?: (files: FileChange[]) => void;
+  onDiscard?: (files: FileChange[]) => void;
 }
 
-export function FileList({ list, files, selected, onSelect, onStage, onUnstage, onDiscard }: Props) {
+/** Stops the click from also selecting the row or folding the folder. */
+const only = (run: () => void) => (e: React.MouseEvent) => {
+  e.stopPropagation();
+  run();
+};
+
+export function FileList({ list, files, selected, collapsed, onToggleFolder, onSelect, onStage, onUnstage, onDiscard }: Props) {
   if (files.length === 0) {
     return <p className="px-3 py-2 text-xs text-zinc-400">{list === "staged" ? "Nothing staged" : "No changes"}</p>;
   }
+
+  const actions = (targets: FileChange[], single: boolean) => {
+    const notConflicted = targets.filter((f) => f.kind !== "conflicted");
+    const resolving = single && targets[0].kind === "conflicted";
+    return (
+      <>
+        {onDiscard && notConflicted.length > 0 && (
+          <Button size="sm" variant="danger" title="Discard changes (undoable)" onClick={only(() => onDiscard(notConflicted))}>
+            Discard
+          </Button>
+        )}
+        {onStage && (resolving || notConflicted.length > 0) && (
+          <Button size="sm" onClick={only(() => onStage(resolving ? targets : notConflicted))}>
+            {resolving ? "Mark resolved" : "Stage"}
+          </Button>
+        )}
+        {onUnstage && (
+          <Button size="sm" onClick={only(() => onUnstage(targets))}>
+            Unstage
+          </Button>
+        )}
+      </>
+    );
+  };
+
   return (
-    <ul className="overflow-y-auto">
-      {files.map((file) => {
+    <FileTree
+      items={files}
+      collapsed={collapsed}
+      onToggle={onToggleFolder}
+      folderActions={(folder) => actions(folder.items, false)}
+      renderFile={(file, name, indent) => {
         const letter = statusLetter(file, list);
         const isSelected = selected === file.path;
-        const slash = file.path.lastIndexOf("/");
         return (
           <li
             key={file.path}
             onClick={() => onSelect(file)}
-            className={`group flex cursor-pointer items-center gap-2 px-3 py-1 text-sm ${
+            style={{ paddingLeft: indent }}
+            className={`group flex cursor-pointer items-center gap-2 py-0.5 pr-3 text-sm ${
               isSelected ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
             }`}
           >
             <span className={`w-3 shrink-0 text-center font-mono text-xs ${letterColor[letter] ?? ""}`}>{letter}</span>
             <span className="min-w-0 flex-1 truncate" title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}>
-              {file.path.slice(slash + 1)}
-              {slash > 0 && <span className="ml-1.5 text-xs text-zinc-400">{file.path.slice(0, slash)}</span>}
+              {name}
             </span>
-            <span className={`flex gap-1 ${isSelected ? "" : "invisible group-hover:visible"}`}>
-              {onDiscard && file.kind !== "conflicted" && (
-                <Button
-                  size="sm"
-                  variant="danger"
-                  title="Discard changes (undoable)"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDiscard(file);
-                  }}
-                >
-                  Discard
-                </Button>
-              )}
-              {onStage && (
-                <Button
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onStage(file);
-                  }}
-                >
-                  {file.kind === "conflicted" ? "Mark resolved" : "Stage"}
-                </Button>
-              )}
-              {onUnstage && (
-                <Button
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onUnstage(file);
-                  }}
-                >
-                  Unstage
-                </Button>
-              )}
-            </span>
+            <span className={`flex gap-1 ${isSelected ? "" : "invisible group-hover:visible"}`}>{actions([file], true)}</span>
           </li>
         );
-      })}
-    </ul>
+      }}
+    />
   );
 }

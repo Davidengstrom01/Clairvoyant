@@ -95,6 +95,9 @@ src/components/     dashboard, detail/, branches/, dialogs/
 - [x] Create worktree (per-repo root) / remove worktree (dirty guard) / prune missing
 - [x] Manual Fetch with last-fetch age
 - [x] Jump-outs: editor, Claude Code, Finder, copy path; Settings dialog
+- [x] Collapsible folder tree (compact folders, per-folder stage/unstage/discard) in file lists and compare
+- [x] Syntax-coloured diffs (Shiki, JS regex engine, grammars loaded on demand, github light/dark)
+- [x] Light / Dark / System theme switch; also themes the window title bar and native dialogs
 
 ### Out of scope
 

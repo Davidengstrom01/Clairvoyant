@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { highlightHunks, type Token } from "../lib/highlight";
 import type { DiffLine, FileDiff, Hunk } from "../lib/types";
 
 const lineStyle: Record<DiffLine["kind"], string> = {
@@ -10,8 +11,43 @@ const lineStyle: Record<DiffLine["kind"], string> = {
 
 const prefix: Record<DiffLine["kind"], string> = { context: " ", added: "+", removed: "-", noNewline: "" };
 
-/** Renders a parsed diff; `hunkActions` adds buttons to each hunk header. */
-export function DiffView({ diff, hunkActions }: { diff: FileDiff; hunkActions?: (hunk: Hunk) => ReactNode }) {
+/** Both colours are set as variables; index.css picks one for the current theme. */
+function TokenSpan({ token }: { token: Token }) {
+  const style = { "--shiki-light": token.light, "--shiki-dark": token.dark } as CSSProperties;
+  return (
+    <span className="shiki-token" style={style}>
+      {token.content}
+    </span>
+  );
+}
+
+/**
+ * Renders a parsed diff with syntax colours; `hunkActions` adds buttons to
+ * each hunk header. Plain text shows at once and colours arrive when ready.
+ */
+export function DiffView({
+  diff,
+  path,
+  hunkActions,
+}: {
+  diff: FileDiff;
+  path: string;
+  hunkActions?: (hunk: Hunk) => ReactNode;
+}) {
+  const [tokens, setTokens] = useState<(Token[] | null)[][] | null>(null);
+
+  useEffect(() => {
+    setTokens(null);
+    let current = true;
+    highlightHunks(diff, path).then(
+      (t) => current && setTokens(t),
+      () => {}, // Colours are a nicety; on failure the plain diff stays.
+    );
+    return () => {
+      current = false;
+    };
+  }, [diff, path]);
+
   if (diff.binary) return <p className="p-4 text-sm text-zinc-500">Binary file; no text diff to show.</p>;
   if (diff.hunks.length === 0) return <p className="p-4 text-sm text-zinc-500">No changes.</p>;
 
@@ -30,16 +66,23 @@ export function DiffView({ diff, hunkActions }: { diff: FileDiff; hunkActions?: 
           </div>
           <table className="w-full border-collapse">
             <tbody>
-              {hunk.lines.map((line, j) => (
-                <tr key={j} className={lineStyle[line.kind]}>
-                  <td className="w-10 pr-2 text-right text-zinc-400 select-none">{line.oldLine ?? ""}</td>
-                  <td className="w-10 pr-2 text-right text-zinc-400 select-none">{line.newLine ?? ""}</td>
-                  <td className="w-4 text-zinc-400 select-none">{prefix[line.kind]}</td>
-                  <td className="pr-3 break-all whitespace-pre-wrap">
-                    {line.kind === "noNewline" ? "No newline at end of file" : line.text}
-                  </td>
-                </tr>
-              ))}
+              {hunk.lines.map((line, j) => {
+                const lineTokens = tokens?.[i]?.[j];
+                return (
+                  <tr key={j} className={lineStyle[line.kind]}>
+                    <td className="w-10 pr-2 text-right text-zinc-400 select-none">{line.oldLine ?? ""}</td>
+                    <td className="w-10 pr-2 text-right text-zinc-400 select-none">{line.newLine ?? ""}</td>
+                    <td className="w-4 text-zinc-400 select-none">{prefix[line.kind]}</td>
+                    <td className="pr-3 break-all whitespace-pre-wrap">
+                      {line.kind === "noNewline"
+                        ? "No newline at end of file"
+                        : lineTokens
+                          ? lineTokens.map((t, k) => <TokenSpan key={k} token={t} />)
+                          : line.text}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -1,10 +1,28 @@
 @import "tailwindcss";
 
+/* Dark mode follows the `dark` class that src/lib/theme.ts sets, not only macOS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Native controls (selects, checkboxes, scrollbars) match the theme. */
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
 }
 
 body {
   @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+}
+
+/* Diff syntax colours: each token carries both themes' colours. */
+.shiki-token {
+  color: var(--shiki-light);
+}
+
+.dark .shiki-token {
+  color: var(--shiki-dark);
 }
