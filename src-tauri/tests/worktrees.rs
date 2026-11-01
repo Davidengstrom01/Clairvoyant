@@ -85,7 +85,7 @@ fn overview_skips_status_for_prunable_worktrees() {
     fs::remove_dir_all(&linked).unwrap();
     repo.write("README.md", "changed\n");
 
-    let overview = repo_overview(&repo.root).unwrap();
+    let overview = repo_overview(&repo.root).unwrap().worktrees;
 
     assert_eq!(overview.len(), 2);
     assert_eq!(overview[0].status.as_ref().unwrap().files.len(), 1);

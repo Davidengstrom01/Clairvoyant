@@ -1,5 +1,5 @@
-//! The repos the user registered. This file is the only state Clairvoyant owns;
-//! everything about the repos themselves is read from git.
+//! The registered repos and app settings. This file is the only state Clairvoyant
+//! owns; everything about the repos themselves is read from git.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -39,12 +39,31 @@ impl RegisteredRepo {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Registry {
-    pub repos: Vec<RegisteredRepo>,
+/// Commands for the jump-out buttons. `{path}` becomes the shell-quoted worktree path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    pub editor_command: String,
+    pub claude_command: String,
 }
 
-impl Registry {
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            editor_command: "code {path}".into(),
+            claude_command: "open -na Ghostty --args --working-directory={path} -e claude".into(),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Config {
+    pub repos: Vec<RegisteredRepo>,
+    #[serde(default)]
+    pub settings: Settings,
+}
+
+impl Config {
     pub fn load(file: &Path) -> Result<Self> {
         match fs::read_to_string(file) {
             Ok(json) => serde_json::from_str(&json)
@@ -54,7 +73,7 @@ impl Registry {
         }
     }
 
-    /// Writes to a temp file and renames it so a crash never leaves a half-written registry.
+    /// Writes to a temp file and renames it so a crash never leaves a half-written config.
     pub fn save(&self, file: &Path) -> Result<()> {
         if let Some(dir) = file.parent() {
             fs::create_dir_all(dir)?;
@@ -91,8 +110,8 @@ mod tests {
     fn missing_file_loads_as_empty() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
-            Registry::load(&dir.path().join("repos.json")).unwrap(),
-            Registry::default()
+            Config::load(&dir.path().join("repos.json")).unwrap(),
+            Config::default()
         );
     }
 
@@ -100,26 +119,26 @@ mod tests {
     fn round_trips_through_disk() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("nested/repos.json");
-        let mut registry = Registry::default();
-        registry.add(RegisteredRepo::new("/code/app".into()));
-        registry.add(RegisteredRepo {
+        let mut config = Config::default();
+        config.add(RegisteredRepo::new("/code/app".into()));
+        config.add(RegisteredRepo {
             path: "/code/api".into(),
             worktree_root: Some("/wt/api".into()),
         });
 
-        registry.save(&file).unwrap();
+        config.save(&file).unwrap();
 
-        assert_eq!(Registry::load(&file).unwrap(), registry);
+        assert_eq!(Config::load(&file).unwrap(), config);
     }
 
     #[test]
     fn add_and_remove_ignore_duplicates_and_unknowns() {
-        let mut registry = Registry::default();
-        assert!(registry.add(RegisteredRepo::new("/code/app".into())));
-        assert!(!registry.add(RegisteredRepo::new("/code/app".into())));
-        assert!(!registry.remove(Path::new("/code/other")));
-        assert!(registry.remove(Path::new("/code/app")));
-        assert!(registry.repos.is_empty());
+        let mut config = Config::default();
+        assert!(config.add(RegisteredRepo::new("/code/app".into())));
+        assert!(!config.add(RegisteredRepo::new("/code/app".into())));
+        assert!(!config.remove(Path::new("/code/other")));
+        assert!(config.remove(Path::new("/code/app")));
+        assert!(config.repos.is_empty());
     }
 
     #[test]
@@ -138,10 +157,22 @@ mod tests {
     }
 
     #[test]
+    fn config_without_settings_gets_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("repos.json");
+        fs::write(&file, r#"{"repos":[{"path":"/code/app"}]}"#).unwrap();
+
+        let config = Config::load(&file).unwrap();
+
+        assert_eq!(config.repos.len(), 1);
+        assert_eq!(config.settings, Settings::default());
+    }
+
+    #[test]
     fn corrupt_file_is_a_config_error() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("repos.json");
         fs::write(&file, "{not json").unwrap();
-        assert!(matches!(Registry::load(&file), Err(Error::Config(_))));
+        assert!(matches!(Config::load(&file), Err(Error::Config(_))));
     }
 }

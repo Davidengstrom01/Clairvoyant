@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { FileChange, WorktreeStatus, WorktreeSummary } from "./types";
-import { branchLabel, changeCounts, folderName, isClean, warnings } from "./worktree";
+import {
+  branchLabel,
+  changeCounts,
+  diffSource,
+  discardTargets,
+  folderName,
+  isClean,
+  splitFiles,
+  statusLetter,
+  unstagePaths,
+  warnings,
+} from "./worktree";
 
 const file = (overrides: Partial<FileChange>): FileChange => ({
   path: "a.txt",
@@ -31,6 +42,8 @@ const summary = (overrides: Partial<WorktreeSummary> = {}): WorktreeSummary => (
   locked: null,
   prunable: null,
   status: status(),
+  operation: null,
+  lastActivity: null,
   error: null,
   ...overrides,
 });
@@ -107,5 +120,50 @@ describe("isClean", () => {
 describe("folderName", () => {
   it("takes the last segment", () => {
     expect(folderName("/code/my app/")).toBe("my app");
+  });
+});
+
+describe("splitFiles", () => {
+  it("puts partly staged files in both lists and the rest in one", () => {
+    const both = file({ path: "both", staged: "M", unstaged: "M" });
+    const stagedOnly = file({ path: "staged", staged: "A" });
+    const untracked = file({ path: "new", kind: "untracked", unstaged: "?" });
+    const conflicted = file({ path: "conflict", kind: "conflicted", staged: "U", unstaged: "U" });
+
+    expect(splitFiles([both, stagedOnly, untracked, conflicted])).toEqual({
+      staged: [both, stagedOnly],
+      unstaged: [both, untracked, conflicted],
+    });
+  });
+});
+
+describe("file actions", () => {
+  const renamed = file({ path: "new.md", origPath: "old.md", kind: "renamed", staged: "R" });
+
+  it("unstages both sides of a rename", () => {
+    expect(unstagePaths([renamed, file({ path: "a" })])).toEqual(["old.md", "new.md", "a"]);
+  });
+
+  it("never discards conflicted files", () => {
+    expect(
+      discardTargets([
+        file({ path: "edit", unstaged: "M" }),
+        file({ path: "new", kind: "untracked" }),
+        file({ path: "conflict", kind: "conflicted" }),
+      ]),
+    ).toEqual({ tracked: ["edit"], untracked: ["new"] });
+  });
+
+  it("diffs the side being shown", () => {
+    expect(diffSource(renamed, "staged")).toBe("staged");
+    expect(diffSource(file({ kind: "untracked" }), "unstaged")).toBe("untracked");
+    expect(diffSource(file({ unstaged: "M" }), "unstaged")).toBe("unstaged");
+  });
+
+  it("labels rows by the side being shown", () => {
+    const both = file({ staged: "A", unstaged: "M" });
+    expect(statusLetter(both, "staged")).toBe("A");
+    expect(statusLetter(both, "unstaged")).toBe("M");
+    expect(statusLetter(file({ kind: "untracked" }), "unstaged")).toBe("U");
   });
 });

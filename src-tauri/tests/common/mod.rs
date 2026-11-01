@@ -34,7 +34,10 @@ impl TestRepo {
         let base = dir.path().canonicalize().unwrap();
         let root = base.join("main repo");
         fs::create_dir(&root).unwrap();
+        isolate_app_git();
         git(&root, &["init", "-b", "main"]);
+        git(&root, &["config", "user.name", "Clairvoyant Test"]);
+        git(&root, &["config", "user.email", "test@example.invalid"]);
         Self {
             _dir: dir,
             base,
@@ -57,32 +60,61 @@ impl TestRepo {
         self.git(&["commit", "-m", message]);
     }
 
+    /// Adds a bare `origin` next to the repo, pushes `main` to it and sets `origin/HEAD`.
+    pub fn with_remote() -> Self {
+        let repo = Self::new();
+        let remote = repo.base.join("remote.git");
+        git(
+            &repo.base,
+            &["init", "--bare", "-b", "main", remote.to_str().unwrap()],
+        );
+        repo.git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+        repo.git(&["push", "-u", "origin", "main"]);
+        repo.git(&["remote", "set-head", "origin", "main"]);
+        repo
+    }
+
+    pub fn read(&self, rel: &str) -> String {
+        fs::read_to_string(self.root.join(rel)).unwrap()
+    }
+
+    pub fn head(&self) -> String {
+        self.git(&["rev-parse", "HEAD"]).trim().to_owned()
+    }
+
     /// Path for a linked worktree, outside the main worktree.
     pub fn sibling(&self, name: &str) -> PathBuf {
         self.base.join(name)
     }
 }
 
+/// The app's own git calls must not see the user's global config either.
+fn isolate_app_git() {
+    clairvoyant_lib::git::init_env(vec![
+        ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+    ]);
+}
+
 /// Runs git with the user's global and system config shut out, so a personal
 /// setting (signing, hooks, default branch) can't change test outcomes.
 pub fn git(cwd: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args([
-            "-c",
-            "user.name=Clairvoyant Test",
-            "-c",
-            "user.email=test@example.invalid",
-        ])
-        .args(args)
-        .current_dir(cwd)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output()
-        .unwrap();
+    let output = try_git(cwd, args);
     assert!(
         output.status.success(),
         "git {args:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap()
+}
+
+/// For commands expected to fail, like a conflicting merge.
+pub fn try_git(cwd: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap()
 }

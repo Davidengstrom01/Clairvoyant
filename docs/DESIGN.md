@@ -26,22 +26,38 @@ the baseline; change them deliberately, not by drift.
 | Git access | `git` CLI only (no libgit2/gitoxide), so hooks, config, signing and credential helpers behave exactly like the terminal |
 | App config | `~/Library/Application Support/dev.clairvoyant.app/repos.json` |
 
-Read-only git calls set `GIT_OPTIONAL_LOCKS=0` so the dashboard never takes
-`index.lock` while you or an agent are running git in the same worktree.
+Every git call sets `GIT_OPTIONAL_LOCKS=0` (the dashboard never takes
+`index.lock` while you or an agent run git in the same worktree),
+`GIT_TERMINAL_PROMPT=0` and `GIT_EDITOR=true` (no prompt or editor can hang
+the app), and the login shell's `PATH`, resolved once at startup, so hooks
+that need node/npx/dotnet work when the app is launched from Finder.
+Commands that take file paths add `--literal-pathspecs`; it is not set
+globally because `GIT_LITERAL_PATHSPECS` breaks `git stash push -u`.
 
 ### Code map
 
 ```
 src-tauri/src/
-  git/mod.rs        run() wrapper around the git CLI, main_worktree()
-  git/worktree.rs   `git worktree list --porcelain -z` parser
+  git/mod.rs        exec/run/run_streaming wrappers around the git CLI
+  git/worktree.rs   worktree list parser; add / remove (dirty guard) / prune
   git/status.rs     `git status --porcelain=v2 --branch --show-stash -z` parser
-  overview.rs       worktrees + statuses for one repo (parallel per worktree)
-  registry.rs       registered repos, persisted as JSON
-  commands.rs       thin Tauri command handlers
+  git/state.rs      git dirs, rebase/merge in progress, last activity
+  git/diff.rs       unified diff parser, one-hunk patches, compare diffs
+  git/index.rs      stage / unstage / discard, per-file and per-hunk
+  git/trash.rs      undo snapshots under refs/clairvoyant/trash
+  git/stash.rs      stash list / push / pop / apply
+  git/commit.rs     commit + amend guard, hook output streamed
+  git/branch.rs     branch list, create / delete / switch, compare
+  git/remote.rs     fetch, last-fetch time
+  overview.rs       dashboard data per repo / per worktree
+  watch.rs          FS watcher: batches events, maps them to worktrees
+  scan.rs           "scan folder" repo discovery
+  config.rs         registered repos + settings, persisted as JSON
+  platform.rs       macOS bits: login-shell PATH, jump-out command templates
+  commands.rs       thin Tauri command handlers (all git work off the main thread)
 src-tauri/tests/    integration tests against real throwaway repos
 src/lib/            typed invoke wrappers + pure view logic (Vitest)
-src/components/     dashboard UI
+src/components/     dashboard, detail/, branches/, dialogs/
 ```
 
 ## Decisions
@@ -53,43 +69,32 @@ src/components/     dashboard UI
 | Remote | Manual Fetch button (per repo / all). Ahead/behind shows last-fetch age. No push, no pull, no background fetch in v1. |
 | Card fields | Branch (or detached @ sha), staged/unstaged/untracked/conflicted counts, ahead/behind, last activity, stash count, rebase/merge in progress, health warnings (locked, folder missing, no upstream, upstream gone). No ticket badge. |
 | Staging | File-level in v1, hunk-level in v2. No line-level. |
-| Discard safety | Snapshot with `git stash create` into `refs/clairvoyant/trash/<timestamp>` before discarding; "Recently discarded" list restores; prune after N days. |
+| Discard safety | Before any discard (file, hunk, or forced worktree removal) the affected files are committed with a scratch index into `refs/clairvoyant/trash/<ms>-<sha>`. Unlike `git stash create` this captures untracked files and deletions. "Recently discarded" restores (snapshotting what it overwrites first); entries are pruned after 14 days. Trash commits use a fixed "Clairvoyant" identity and are never signed. |
 | Branch safety | Delete uses `git branch -d`; force delete needs explicit confirmation. Removing a dirty worktree is blocked unless confirmed. |
-| Commit | Commit + amend. Amend is blocked when HEAD is already on its upstream. Hook output streams live. No `--no-verify` button. |
+| Commit | Commit + amend. Amend is blocked when HEAD is reachable from any remote-tracking branch. Hook output streams live. No `--no-verify` button. |
 | Branches view | List: checked out in which worktree, ahead/behind default branch, merged flag, last commit; filters "merged" and "not checked out". Compare view in v2. No commit graph. |
 | New worktrees | Per-repo root, default `<repo-parent>/<repo>.worktrees/<branch>`, editable in the create dialog. |
-| Jump-outs | Open in editor (configurable command), open Claude Code in the worktree, reveal in Finder, copy path. |
+| Jump-outs | Open in editor and open Claude Code are shell command templates in Settings (`{path}` = quoted worktree path; defaults `code {path}` and Ghostty running `claude`); reveal in Finder; copy path. |
 | Testing | Rust integration tests on real temp repos for every parser and destructive action; Vitest for frontend logic; no E2E in v1. |
 
 ## Roadmap
 
-### Done (scaffold)
+### Done
 
 - [x] Tauri + React/TS/Tailwind project, Vitest, Rust test harness
-- [x] Repo registry (add via folder picker, remove, persisted)
-- [x] Worktree list + status parsers with real-repo tests
-- [x] Dashboard: worktree cards with branch, change counts, ahead/behind, stash count, health warnings
-- [x] Refresh on window focus and ⌘R
-
-### v1
-
-- [ ] FS watcher per worktree with debounce
-- [ ] Card: last activity, rebase/merge/cherry-pick in progress
-- [ ] Worktree detail view: file lists + diff viewer
-- [ ] Stage / unstage per file
-- [ ] Discard with trash snapshot + restore list
-- [ ] Stash push / pop / list
-- [ ] Commit + safe amend with live hook output
-- [ ] Branches view with filters; create / safe-delete / switch branch
-- [ ] Create worktree (per-repo root) / remove worktree (dirty guard)
-- [ ] Manual Fetch with last-fetch age
-- [ ] Jump-outs: editor, Claude Code, Finder, copy path
-- [ ] "Scan folder" bulk add
-
-### v2
-
-- [ ] Hunk-level stage / discard
-- [ ] Branch compare view
+- [x] Repo registry (folder picker, "scan folder" bulk add, remove, persisted)
+- [x] Dashboard cards: branch, change counts, ahead/behind, last activity, stash count, operation in progress, health warnings
+- [x] FS watcher per worktree with debounce; refresh on focus and ⌘R
+- [x] Worktree detail view: file lists + diff viewer
+- [x] Stage / unstage / discard per file and per hunk (v2 item, done early)
+- [x] Discard trash with undo toast and "Recently discarded" restore list
+- [x] Stash push / pop / apply / list
+- [x] Commit + safe amend with live hook output; login-shell PATH for hooks
+- [x] Branches view with filters; create / safe-delete / switch branch
+- [x] Branch compare view (v2 item, done early)
+- [x] Create worktree (per-repo root) / remove worktree (dirty guard) / prune missing
+- [x] Manual Fetch with last-fetch age
+- [x] Jump-outs: editor, Claude Code, Finder, copy path; Settings dialog
 
 ### Out of scope
 
@@ -99,10 +104,10 @@ ticket badges, Windows/Linux.
 
 ## Open issues
 
-- **PATH in GUI launches.** An app started from Finder/Dock does not inherit
-  your shell `PATH`, so it gets `/usr/bin/git`, and commit hooks that need
-  `node`/`npx` (husky, lint-staged) may fail. Before shipping commit, resolve
-  the login-shell `PATH` once at startup (for example `$SHELL -lc 'echo $PATH'`)
-  and pass it to every git call.
+- **Default Claude Code command is unverified.** `open -na Ghostty --args
+  --working-directory={path} -e claude` depends on how your Ghostty version
+  handles `-e` when launched through `open`; adjust it in Settings if needed.
+- **No end-to-end UI tests.** The UI was checked by hand against a mocked
+  backend; the git layer is covered by integration tests.
 - **Types are mirrored by hand** between `src-tauri` and `src/lib/types.ts`.
   Consider generating them (`ts-rs` or `specta`) once the surface grows.

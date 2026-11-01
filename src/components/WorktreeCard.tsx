@@ -1,56 +1,54 @@
 import type { WorktreeSummary } from "../lib/types";
-import { branchLabel, changeCounts, folderName, isClean, warnings } from "../lib/worktree";
+import { relativeTime } from "../lib/format";
+import { branchLabel, changeCounts, folderName, isClean, operationLabel, warnings } from "../lib/worktree";
+import { JumpOuts } from "./JumpOuts";
+import { Chip } from "./ui";
 
-const chip = "rounded px-1.5 py-0.5 text-xs font-medium tabular-nums";
-
-export function WorktreeCard({ summary }: { summary: WorktreeSummary }) {
+export function WorktreeCard({ summary, onOpen }: { summary: WorktreeSummary; onOpen?: () => void }) {
   const status = summary.status;
   const counts = status ? changeCounts(status.files) : null;
   const clean = isClean(summary);
+  const openable = Boolean(onOpen && status);
 
   return (
-    <article className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <article
+      onClick={openable ? onOpen : undefined}
+      className={`flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 ${
+        openable ? "cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-600" : ""
+      }`}
+    >
       <header className="min-w-0">
         <div className="flex items-center gap-2">
           <h3 className="truncate font-mono text-sm font-semibold" title={branchLabel(summary)}>
             {branchLabel(summary)}
           </h3>
-          {summary.isMain && (
-            <span className={`${chip} bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300`}>
-              main worktree
+          {summary.isMain && <Chip>main worktree</Chip>}
+        </div>
+        <p className="flex gap-2 text-xs text-zinc-500">
+          <span className="truncate" title={summary.path}>
+            {folderName(summary.path)}
+          </span>
+          {summary.lastActivity !== null && (
+            <span className="ml-auto shrink-0" title="Latest commit, stage or file edit">
+              {relativeTime(summary.lastActivity)}
             </span>
           )}
-        </div>
-        <p className="truncate text-xs text-zinc-500" title={summary.path}>
-          {folderName(summary.path)}
         </p>
       </header>
 
+      {summary.operation && (
+        <div>
+          <Chip tone="violet">{operationLabel[summary.operation]}</Chip>
+        </div>
+      )}
+
       {counts && (
         <div className="flex flex-wrap gap-1.5">
-          {clean && (
-            <span className={`${chip} bg-zinc-100 text-zinc-500 dark:bg-zinc-800`}>clean</span>
-          )}
-          {counts.conflicted > 0 && (
-            <span className={`${chip} bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300`}>
-              {counts.conflicted} conflicted
-            </span>
-          )}
-          {counts.staged > 0 && (
-            <span className={`${chip} bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300`}>
-              {counts.staged} staged
-            </span>
-          )}
-          {counts.unstaged > 0 && (
-            <span className={`${chip} bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300`}>
-              {counts.unstaged} unstaged
-            </span>
-          )}
-          {counts.untracked > 0 && (
-            <span className={`${chip} bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300`}>
-              {counts.untracked} untracked
-            </span>
-          )}
+          {clean && <Chip>clean</Chip>}
+          {counts.conflicted > 0 && <Chip tone="red">{counts.conflicted} conflicted</Chip>}
+          {counts.staged > 0 && <Chip tone="green">{counts.staged} staged</Chip>}
+          {counts.unstaged > 0 && <Chip tone="amber">{counts.unstaged} unstaged</Chip>}
+          {counts.untracked > 0 && <Chip tone="sky">{counts.untracked} untracked</Chip>}
         </div>
       )}
 
@@ -62,8 +60,8 @@ export function WorktreeCard({ summary }: { summary: WorktreeSummary }) {
             </span>
           )}
           {status.stashCount > 0 && (
-            <span>
-              {status.stashCount} stash{status.stashCount === 1 ? "" : "es"}
+            <span title="Stashes are shared by every worktree of the repo">
+              {status.stashCount} stash{status.stashCount === 1 ? "" : "es"} in repo
             </span>
           )}
         </div>
@@ -72,18 +70,22 @@ export function WorktreeCard({ summary }: { summary: WorktreeSummary }) {
       {warnings(summary).length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
           {warnings(summary).map((w) => (
-            <li
-              key={w.label}
-              title={w.detail}
-              className={`${chip} border border-orange-300 text-orange-700 dark:border-orange-800 dark:text-orange-300`}
-            >
-              {w.label}
+            <li key={w.label}>
+              <Chip tone="orange" title={w.detail}>
+                {w.label}
+              </Chip>
             </li>
           ))}
         </ul>
       )}
 
       {summary.error && <p className="text-xs break-words text-red-600">{summary.error}</p>}
+
+      {status && (
+        <footer className="-mx-2 -mb-2 border-t border-zinc-100 pt-1 dark:border-zinc-800">
+          <JumpOuts path={summary.path} />
+        </footer>
+      )}
     </article>
   );
 }

@@ -85,3 +85,86 @@ fn parse(out: &str) -> Result<Vec<Worktree>> {
     }
     Ok(worktrees)
 }
+
+/// Creates a worktree at `path`. With `new_branch`, `branch` is created from
+/// `start` (default HEAD); a remote-tracking `start` sets up tracking.
+pub fn add_worktree(
+    repo: &Path,
+    path: &Path,
+    branch: &str,
+    new_branch: bool,
+    start: Option<&str>,
+) -> Result<()> {
+    super::branch::validate_branch_name(repo, branch)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let path = path.to_string_lossy();
+    let mut args = vec!["worktree", "add"];
+    if new_branch {
+        args.extend(["-b", branch, &path]);
+        args.extend(start);
+    } else {
+        args.extend([path.as_ref(), branch]);
+    }
+    super::run(repo, &args)?;
+    Ok(())
+}
+
+/// Removes a linked worktree. Uncommitted changes block removal unless `force`;
+/// forced removal snapshots them to the trash first.
+pub fn remove_worktree(repo: &Path, path: &Path, force: bool) -> Result<()> {
+    let worktree = list_worktrees(repo)?
+        .into_iter()
+        .find(|wt| wt.path == path)
+        .ok_or_else(|| {
+            Error::Refused(format!("{} is not a worktree of this repo", path.display()))
+        })?;
+    if worktree.is_main {
+        return Err(Error::Refused("the main worktree can't be removed".into()));
+    }
+    if let Some(reason) = &worktree.locked {
+        let reason = if reason.is_empty() {
+            String::new()
+        } else {
+            format!(" ({reason})")
+        };
+        return Err(Error::Refused(format!(
+            "worktree is locked{reason}; run `git worktree unlock` first"
+        )));
+    }
+    if worktree.prunable.is_some() {
+        return prune_worktrees(repo);
+    }
+
+    let changed: Vec<String> = super::status(path)?
+        .files
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    if !changed.is_empty() {
+        if !force {
+            return Err(Error::Refused(format!(
+                "{} has {} uncommitted change(s)",
+                path.display(),
+                changed.len()
+            )));
+        }
+        let changed: Vec<&str> = changed.iter().map(String::as_str).collect();
+        super::snapshot(path, &changed)?;
+    }
+    let path = path.to_string_lossy();
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&path);
+    super::run(repo, &args)?;
+    Ok(())
+}
+
+/// Forgets worktrees whose folders were deleted.
+pub fn prune_worktrees(repo: &Path) -> Result<()> {
+    super::run(repo, &["worktree", "prune"])?;
+    Ok(())
+}

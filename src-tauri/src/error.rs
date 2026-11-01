@@ -10,6 +10,9 @@ pub enum Error {
     NotARepo(String),
     #[error("invalid config: {0}")]
     Config(String),
+    /// A safety guard stopped the action; the message says why and how to proceed.
+    #[error("{0}")]
+    Refused(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

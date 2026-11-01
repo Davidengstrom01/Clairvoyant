@@ -94,20 +94,8 @@ fn merge_conflicts_are_reported() {
     repo.git(&["checkout", "main"]);
     repo.write("README.md", "ours\n");
     repo.commit_all("ours");
-    // Exits non-zero because of the conflict; the helper would panic.
-    let _ = std::process::Command::new("git")
-        .args([
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.invalid",
-            "merge",
-            "other",
-        ])
-        .current_dir(&repo.root)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .output();
+    // Exits non-zero because of the conflict.
+    common::try_git(&repo.root, &["merge", "other"]);
 
     let files = git::status(&repo.root).unwrap().files;
 

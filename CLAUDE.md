@@ -19,4 +19,6 @@ Design decisions and roadmap live in `docs/DESIGN.md` — read it before adding 
 - Never add push or pull. Destructive actions must be undoable or guarded (see DESIGN.md).
 - Tauri commands in `commands.rs` stay thin; logic goes in modules that `src-tauri/tests` can call directly.
 - Every parser and destructive action gets an integration test that builds a real repo with `tests/common::TestRepo`.
+- Destructive actions snapshot to the trash first (`git::snapshot`); never add one that skips it.
+- Pass file paths with `LITERAL` (`--literal-pathspecs`); do not set `GIT_LITERAL_PATHSPECS` globally.
 - Rust types serialize camelCase; `src/lib/types.ts` mirrors them by hand — update both together.
