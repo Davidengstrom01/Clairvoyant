@@ -12,7 +12,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::config::{Config, RegisteredRepo, Settings};
 use crate::error::{Error, Result};
-use crate::git::{self, Branch, Comparison, DiffSource, FileDiff, HunkAction, Stash, TrashEntry};
+use crate::git::{
+    self, Branch, Comparison, DiffSource, FileDiff, HunkAction, PathDiff, Stash, TrashEntry,
+    WorktreeDiffs,
+};
 use crate::overview::{self, RepoOverview, WorktreeSummary};
 use crate::platform;
 use crate::scan;
@@ -206,6 +209,12 @@ pub async fn unstage(worktree: PathBuf, paths: Vec<String>) -> Result<()> {
     blocking(move || git::unstage(&worktree, &strs(&paths))).await
 }
 
+/// Every pending change in the worktree, for the scrollable review pane.
+#[tauri::command]
+pub async fn worktree_diffs(worktree: PathBuf) -> Result<WorktreeDiffs> {
+    blocking(move || git::worktree_diffs(&worktree)).await
+}
+
 /// Returns the trash id that undoes the discard.
 #[tauri::command]
 pub async fn discard(
@@ -330,6 +339,11 @@ pub async fn switch_branch(worktree: PathBuf, name: String, remote: bool) -> Res
 #[tauri::command]
 pub async fn compare(repo: PathBuf, base: String, head: String) -> Result<Comparison> {
     blocking(move || git::compare(&repo, &base, &head)).await
+}
+
+#[tauri::command]
+pub async fn compare_diffs(repo: PathBuf, base: String, head: String) -> Result<Vec<PathDiff>> {
+    blocking(move || git::compare_diffs(&repo, &base, &head)).await
 }
 
 #[tauri::command]

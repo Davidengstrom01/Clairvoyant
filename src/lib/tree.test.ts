@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, folderPaths, type TreeFolder, type TreeNode } from "./tree";
+import { buildTree, flattenTree, folderPaths, type TreeFolder, type TreeNode } from "./tree";
 
 const items = (...paths: string[]) => paths.map((path) => ({ path }));
 
@@ -53,5 +53,12 @@ describe("buildTree", () => {
 
   it("handles an empty list", () => {
     expect(buildTree([])).toEqual([]);
+  });
+});
+
+describe("flattenTree", () => {
+  it("lists items in display order", () => {
+    const input = items("z.txt", "src/b.ts", "src/a/x.ts", "a.txt");
+    expect(flattenTree(buildTree(input)).map((i) => i.path)).toEqual(["src/a/x.ts", "src/b.ts", "a.txt", "z.txt"]);
   });
 });

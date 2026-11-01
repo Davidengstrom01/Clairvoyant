@@ -3,19 +3,24 @@ import { statusLetter, type FileList as ListKind } from "../../lib/worktree";
 import { FileTree } from "../FileTree";
 import { Button } from "../ui";
 
-const letterColor: Record<string, string> = {
+export const letterColor: Record<string, string> = {
   M: "text-amber-600",
   A: "text-emerald-600",
   D: "text-red-600",
   R: "text-sky-600",
+  C: "text-sky-600",
+  T: "text-amber-600",
   U: "text-sky-600",
+  "?": "text-sky-600",
   "!": "text-red-600 font-bold",
 };
 
 interface Props {
   list: ListKind;
   files: FileChange[];
-  selected: string | null;
+  /** The file at the top of the diff pane; highlighted as you scroll. */
+  current: string | null;
+  isViewed: (path: string) => boolean;
   collapsed: Set<string>;
   onToggleFolder: (path: string) => void;
   onSelect: (file: FileChange) => void;
@@ -31,7 +36,18 @@ const only = (run: () => void) => (e: React.MouseEvent) => {
   run();
 };
 
-export function FileList({ list, files, selected, collapsed, onToggleFolder, onSelect, onStage, onUnstage, onDiscard }: Props) {
+export function FileList({
+  list,
+  files,
+  current,
+  isViewed,
+  collapsed,
+  onToggleFolder,
+  onSelect,
+  onStage,
+  onUnstage,
+  onDiscard,
+}: Props) {
   if (files.length === 0) {
     return <p className="px-3 py-2 text-xs text-zinc-400">{list === "staged" ? "Nothing staged" : "No changes"}</p>;
   }
@@ -65,10 +81,12 @@ export function FileList({ list, files, selected, collapsed, onToggleFolder, onS
       items={files}
       collapsed={collapsed}
       onToggle={onToggleFolder}
+      isViewed={(f) => isViewed(f.path)}
       folderActions={(folder) => actions(folder.items, false)}
       renderFile={(file, name, indent) => {
         const letter = statusLetter(file, list);
-        const isSelected = selected === file.path;
+        const isSelected = current === file.path;
+        const viewed = isViewed(file.path);
         return (
           <li
             key={file.path}
@@ -79,9 +97,17 @@ export function FileList({ list, files, selected, collapsed, onToggleFolder, onS
             }`}
           >
             <span className={`w-3 shrink-0 text-center font-mono text-xs ${letterColor[letter] ?? ""}`}>{letter}</span>
-            <span className="min-w-0 flex-1 truncate" title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}>
+            <span
+              className={`min-w-0 flex-1 truncate ${viewed ? "text-zinc-400" : ""}`}
+              title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
+            >
               {name}
             </span>
+            {viewed && (
+              <span className="text-xs text-emerald-600" title="Viewed">
+                ✓
+              </span>
+            )}
             <span className={`flex gap-1 ${isSelected ? "" : "invisible group-hover:visible"}`}>{actions([file], true)}</span>
           </li>
         );

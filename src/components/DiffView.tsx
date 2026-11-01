@@ -29,15 +29,19 @@ export function DiffView({
   diff,
   path,
   hunkActions,
+  highlight = true,
 }: {
   diff: FileDiff;
   path: string;
   hunkActions?: (hunk: Hunk) => ReactNode;
+  /** Off for files far from view, so a long review colours lazily. */
+  highlight?: boolean;
 }) {
   const [tokens, setTokens] = useState<(Token[] | null)[][] | null>(null);
 
   useEffect(() => {
     setTokens(null);
+    if (!highlight) return;
     let current = true;
     highlightHunks(diff, path).then(
       (t) => current && setTokens(t),
@@ -46,7 +50,7 @@ export function DiffView({
     return () => {
       current = false;
     };
-  }, [diff, path]);
+  }, [diff, path, highlight]);
 
   if (diff.binary) return <p className="p-4 text-sm text-zinc-500">Binary file; no text diff to show.</p>;
   if (diff.hunks.length === 0) return <p className="p-4 text-sm text-zinc-500">No changes.</p>;
@@ -60,7 +64,7 @@ export function DiffView({
       )}
       {diff.hunks.map((hunk, i) => (
         <div key={`${i}-${hunk.header}`} className="border-b border-zinc-200 dark:border-zinc-800">
-          <div className="sticky top-0 flex items-center gap-2 bg-zinc-100 px-3 py-1 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+          <div className="flex items-center gap-2 bg-zinc-100 px-3 py-1 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
             <span className="truncate">{hunk.header}</span>
             {!diff.combined && hunkActions && <div className="ml-auto flex gap-1 font-sans">{hunkActions(hunk)}</div>}
           </div>

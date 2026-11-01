@@ -242,31 +242,14 @@ pub fn compare(repo: &Path, base: &str, head: &str) -> Result<Comparison> {
             &format!("{base}...{head}"),
         ],
     )?;
-    let mut fields = names.split('\0').filter(|f| !f.is_empty());
-    let mut files = Vec::new();
-    while let Some(status) = fields.next() {
-        let letter = status.get(..1).unwrap_or_default().to_owned();
-        let first = fields
-            .next()
-            .ok_or_else(|| Error::Parse(format!("name-status: {status}")))?;
-        let file = if letter == "R" || letter == "C" {
-            let second = fields
-                .next()
-                .ok_or_else(|| Error::Parse(format!("name-status: {status}")))?;
-            ComparedFile {
-                status: letter,
-                path: second.to_owned(),
-                orig_path: Some(first.to_owned()),
-            }
-        } else {
-            ComparedFile {
-                status: letter,
-                path: first.to_owned(),
-                orig_path: None,
-            }
-        };
-        files.push(file);
-    }
+    let files = super::diff::parse_name_status(&names)?
+        .into_iter()
+        .map(|n| ComparedFile {
+            status: n.status,
+            path: n.path,
+            orig_path: n.orig_path,
+        })
+        .collect();
     Ok(Comparison {
         commits,
         behind,

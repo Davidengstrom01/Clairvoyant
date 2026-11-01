@@ -25,7 +25,10 @@ pub use branch::{
     delete_branch, switch_branch,
 };
 pub use commit::{commit, head_is_published};
-pub use diff::{DiffLine, DiffSource, FileDiff, Hunk, LineKind, compare_diff, file_diff};
+pub use diff::{
+    DiffLine, DiffSource, FileDiff, Hunk, LineKind, PathDiff, WorktreeDiffs, compare_diff,
+    compare_diffs, file_diff, worktree_diffs,
+};
 pub use index::{HunkAction, apply_hunk, discard, stage, unstage};
 pub use remote::{fetch, last_fetch};
 pub use stash::{Stash, stash_apply, stash_list, stash_pop, stash_push};

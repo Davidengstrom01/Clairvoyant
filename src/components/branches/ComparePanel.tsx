@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
-import { compare, compareDiff } from "../../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { compare, compareDiff, compareDiffs } from "../../lib/api";
 import { plural, relativeTime } from "../../lib/format";
-import type { Branch, Comparison, FileDiff } from "../../lib/types";
-import { DiffView } from "../DiffView";
+import type { Branch, Comparison, PathDiff } from "../../lib/types";
+import { useViewed } from "../../lib/viewed";
+import { letterColor } from "../detail/FileList";
+import { DiffStack, stackKey, type DiffStackHandle } from "../DiffStack";
 import { FileTree, toggled } from "../FileTree";
 import { Button, inputClass } from "../ui";
 
@@ -20,40 +22,31 @@ export function ComparePanel({
 }) {
   const [base, setBase] = useState(() => branches.find((b) => b.isDefault && b.name !== head)?.name ?? "");
   const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [diffs, setDiffs] = useState<PathDiff[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [file, setFile] = useState<string | null>(null);
-  const [diff, setDiff] = useState<FileDiff | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [current, setCurrent] = useState<string | null>(null);
+  const stack = useRef<DiffStackHandle>(null);
+  const viewed = useViewed(`compare:${repo}:${base}...${head}`, diffs);
 
   useEffect(() => {
     setComparison(null);
-    setFile(null);
+    setDiffs(null);
     if (!base) return;
-    let current = true;
-    compare(repo, base, head).then(
-      (c) => current && (setComparison(c), setError(null)),
-      (e) => current && setError(String(e)),
+    let live = true;
+    Promise.all([compare(repo, base, head), compareDiffs(repo, base, head)]).then(
+      ([c, d]) => live && (setComparison(c), setDiffs(d), setError(null)),
+      (e) => live && setError(String(e)),
     );
     return () => {
-      current = false;
+      live = false;
     };
   }, [repo, base, head]);
 
-  useEffect(() => {
-    setDiff(null);
-    if (!file) return;
-    let current = true;
-    compareDiff(repo, base, head, file).then(
-      (d) => current && setDiff(d),
-      (e) => current && setError(String(e)),
-    );
-    return () => {
-      current = false;
-    };
-  }, [repo, base, head, file]);
+  const currentPath = current?.startsWith("files:") ? current.slice("files:".length) : null;
 
   return (
-    <div className="flex min-h-0 flex-col border-t border-zinc-200 dark:border-zinc-800">
+    <div className="flex min-h-0 flex-1 flex-col border-t border-zinc-200 dark:border-zinc-800">
       <header className="flex items-center gap-2 px-4 py-2 text-sm">
         <span className="font-mono font-semibold">{head}</span>
         <span className="text-zinc-500">compared with</span>
@@ -78,7 +71,7 @@ export function ComparePanel({
         </Button>
       </header>
       {error && <p className="px-4 pb-2 text-sm text-red-600">{error}</p>}
-      {comparison && (
+      {comparison && diffs && (
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(18rem,24rem)_1fr] border-t border-zinc-200 dark:border-zinc-800">
           <div className="min-h-0 overflow-y-auto border-r border-zinc-200 text-sm dark:border-zinc-800">
             <h4 className="px-3 pt-2 text-xs font-semibold text-zinc-500 uppercase">Commits</h4>
@@ -91,28 +84,55 @@ export function ComparePanel({
                 </li>
               ))}
             </ul>
-            <h4 className="px-3 pt-3 text-xs font-semibold text-zinc-500 uppercase">Files</h4>
+            <h4 className="px-3 pt-3 text-xs font-semibold text-zinc-500 uppercase">
+              Files{viewed.count > 0 && ` · ${viewed.count} viewed`}
+            </h4>
             <FileTree
-              items={comparison.files}
+              items={diffs}
               collapsed={collapsed}
               onToggle={(folder) => setCollapsed((c) => toggled(c, folder))}
-              renderFile={(f, name, indent) => (
-                <li
-                  key={f.path}
-                  onClick={() => setFile(f.path)}
-                  style={{ paddingLeft: indent }}
-                  className={`flex cursor-pointer gap-2 py-0.5 pr-3 ${file === f.path ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}
-                >
-                  <span className="w-3 shrink-0 text-center font-mono text-xs">{f.status}</span>
-                  <span className="truncate" title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}>
-                    {name}
-                  </span>
-                </li>
-              )}
+              isViewed={(f) => viewed.isViewed(f.path)}
+              renderFile={(f, name, indent) => {
+                const isViewed = viewed.isViewed(f.path);
+                return (
+                  <li
+                    key={f.path}
+                    onClick={() => stack.current?.scrollTo(stackKey("files", f.path))}
+                    style={{ paddingLeft: indent }}
+                    className={`flex cursor-pointer items-center gap-2 py-0.5 pr-3 ${
+                      currentPath === f.path ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                    }`}
+                  >
+                    <span className={`w-3 shrink-0 text-center font-mono text-xs ${letterColor[f.status] ?? ""}`}>
+                      {f.status}
+                    </span>
+                    <span
+                      className={`min-w-0 flex-1 truncate ${isViewed ? "text-zinc-400" : ""}`}
+                      title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                    >
+                      {name}
+                    </span>
+                    {isViewed && <span className="text-xs text-emerald-600">✓</span>}
+                  </li>
+                );
+              }}
             />
           </div>
-          <div className="min-h-0 overflow-y-auto">
-            {diff && file ? <DiffView diff={diff} path={file} /> : <p className="p-4 text-sm text-zinc-500">Pick a file to see its diff.</p>}
+          <div className="flex min-h-0 flex-col">
+            <DiffStack
+              ref={stack}
+              groups={[
+                {
+                  id: "files",
+                  title: "Files",
+                  files: diffs,
+                  viewed,
+                  loadDeferred: (d) => compareDiff(repo, base, head, d.path),
+                },
+              ]}
+              onCurrent={setCurrent}
+              empty={<p className="p-4 text-sm text-zinc-500">No file differences.</p>}
+            />
           </div>
         </div>
       )}

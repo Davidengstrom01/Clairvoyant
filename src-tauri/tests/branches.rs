@@ -236,3 +236,39 @@ fn removing_a_worktree_whose_folder_is_gone_prunes_it() {
 
     assert_eq!(git::list_worktrees(&repo.root).unwrap().len(), 1);
 }
+
+#[test]
+fn compare_diffs_match_per_file_compare() {
+    let repo = TestRepo::new();
+    repo.git(&["checkout", "-b", "topic"]);
+    repo.write("src/a b.ts", "export const a = 1;\n");
+    repo.write("src/ü.rs", "fn main() {}\n");
+    repo.git(&["mv", "README.md", "DOCS.md"]);
+    repo.commit_all("topic work");
+
+    let diffs = git::compare_diffs(&repo.root, "main", "topic").unwrap();
+
+    let paths: Vec<&str> = diffs.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(paths, vec!["DOCS.md", "src/a b.ts", "src/ü.rs"]);
+    assert_eq!(diffs[0].orig_path.as_deref(), Some("README.md"));
+    // Seen as a rename, which a single-path diff can't do (it shows an added file).
+    assert!(
+        diffs[0]
+            .diff
+            .header
+            .iter()
+            .any(|l| l == "rename from README.md")
+    );
+    for d in &diffs[1..] {
+        assert_eq!(
+            d.diff,
+            git::compare_diff(&repo.root, "main", "topic", &d.path).unwrap(),
+            "{}",
+            d.path
+        );
+    }
+    assert!(matches!(
+        git::compare_diffs(&repo.root, "--output=x", "topic"),
+        Err(Error::Refused(_))
+    ));
+}

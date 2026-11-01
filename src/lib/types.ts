@@ -142,3 +142,19 @@ export interface CommitOutput {
   worktree: string;
   line: string;
 }
+
+/** One file in a list of all changed files (`worktree_diffs`, `compare_diffs`). */
+export interface PathDiff {
+  path: string;
+  origPath: string | null;
+  /** Name-status letter, or "?" for an untracked file. */
+  status: string;
+  diff: FileDiff;
+  /** Past the size budget: hunks weren't sent; load the file on its own. */
+  deferred: boolean;
+}
+
+export interface WorktreeDiffs {
+  unstaged: PathDiff[];
+  staged: PathDiff[];
+}

@@ -1,20 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { applyHunk, discard, fileDiff, removeWorktree, restoreTrash, stage, unstage } from "../../lib/api";
+import {
+  applyHunk,
+  discard,
+  fileDiff,
+  removeWorktree,
+  restoreTrash,
+  stage,
+  unstage,
+  worktreeDiffs,
+} from "../../lib/api";
 import { plural } from "../../lib/format";
 import { buildTree, folderPaths } from "../../lib/tree";
 import { useGuard, useNotify } from "../../lib/notify";
-import type { FileChange, FileDiff, Hunk, HunkAction, WorktreeSummary } from "../../lib/types";
+import type { FileChange, Hunk, HunkAction, PathDiff, WorktreeDiffs, WorktreeSummary } from "../../lib/types";
+import { useViewed } from "../../lib/viewed";
 import {
   branchLabel,
-  diffSource,
   discardTargets,
   operationLabel,
   splitFiles,
   unstagePaths,
   type FileList as ListKind,
 } from "../../lib/worktree";
-import { DiffView } from "../DiffView";
+import { DiffStack, stackKey, type DiffStackHandle, type StackGroup } from "../DiffStack";
 import { toggled } from "../FileTree";
 import { StashDialog } from "../dialogs/StashDialog";
 import { SwitchBranchDialog } from "../dialogs/SwitchBranchDialog";
@@ -33,11 +42,6 @@ interface Props {
   onChanged: () => void;
 }
 
-interface Selection {
-  list: ListKind;
-  path: string;
-}
-
 export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Props) {
   const guard = useGuard();
   const notify = useNotify();
@@ -45,9 +49,11 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
   const files = summary.status?.files ?? [];
   const lists = splitFiles(files);
 
-  const [chosen, setChosen] = useState<Selection | null>(null);
-  const [diff, setDiff] = useState<FileDiff | null>(null);
+  const [diffs, setDiffs] = useState<WorktreeDiffs | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
+  /** Key (`list:path`) of the file at the top of the diff pane. */
+  const [current, setCurrent] = useState<string | null>(null);
+  const stack = useRef<DiffStackHandle>(null);
   const [panel, setPanel] = useState<"stashes" | "trash">("stashes");
   const [dialog, setDialog] = useState<"stash" | "switch" | null>(null);
   // Folded folders per list, so folding in Changes doesn't fold Staged.
@@ -56,34 +62,30 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
     staged: new Set(),
   });
 
-  // Fall back to the first file when the chosen one was staged, committed or discarded.
-  const chosenFile = chosen && lists[chosen.list].find((f) => f.path === chosen.path);
-  const selection: Selection | null = chosenFile
-    ? chosen
-    : lists.unstaged[0]
-      ? { list: "unstaged", path: lists.unstaged[0].path }
-      : lists.staged[0]
-        ? { list: "staged", path: lists.staged[0].path }
-        : null;
-  const selectedFile = selection ? lists[selection.list].find((f) => f.path === selection.path)! : null;
-  const source = selectedFile && selection ? diffSource(selectedFile, selection.list) : null;
-  const origPath = source === "staged" ? (selectedFile?.origPath ?? null) : null;
-
+  // Old diffs stay on screen until new ones arrive, so refreshes don't jump.
   useEffect(() => {
-    if (!selectedFile || !source) {
-      setDiff(null);
-      return;
-    }
-    let current = true;
-    fileDiff(path, selectedFile.path, origPath, source).then(
-      (d) => current && (setDiff(d), setDiffError(null)),
-      (e) => current && (setDiff(null), setDiffError(String(e))),
+    let live = true;
+    worktreeDiffs(path).then(
+      (d) => live && (setDiffs(d), setDiffError(null)),
+      (e) => live && setDiffError(String(e)),
     );
     return () => {
-      current = false;
+      live = false;
     };
-    // Keyed on the file's path, not the object, which is recreated on every refresh.
-  }, [path, selectedFile?.path, origPath, source, version]);
+  }, [path, version]);
+
+  const unstagedDiffs = diffs?.unstaged ?? null;
+  // Conflicted files belong to Changes only, matching the left-hand lists.
+  const stagedDiffs = useMemo(() => diffs?.staged.filter((d) => d.status !== "U") ?? null, [diffs]);
+  const viewed = {
+    unstaged: useViewed(`${path}:unstaged`, unstagedDiffs),
+    staged: useViewed(`${path}:staged`, stagedDiffs),
+  };
+
+  const currentIn = (list: ListKind) =>
+    current?.startsWith(`${list}:`) ? current.slice(list.length + 1) : null;
+  const jumpTo = (list: ListKind) => (file: FileChange) => stack.current?.scrollTo(stackKey(list, file.path));
+  const changeFor = (list: ListKind, file: PathDiff) => lists[list].find((f) => f.path === file.path);
 
   async function act(action: () => Promise<unknown>) {
     await guard(action);
@@ -105,9 +107,8 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
     if (id) offerUndo(`Discarded ${plural(tracked.length + untracked.length, "file")}`, id);
   }
 
-  async function hunkAction(hunk: Hunk, action: HunkAction) {
-    if (!selectedFile) return;
-    const id = await guard(() => applyHunk(path, selectedFile.path, hunk.header, action));
+  async function hunkAction(file: PathDiff, hunk: Hunk, action: HunkAction) {
+    const id = await guard(() => applyHunk(path, file.path, hunk.header, action));
     onChanged();
     if (id) offerUndo("Discarded hunk", id);
   }
@@ -128,21 +129,67 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
     }
   }
 
-  const hunkActions = (hunk: Hunk) =>
-    source === "unstaged" ? (
-      <>
-        <Button size="sm" variant="danger" onClick={() => hunkAction(hunk, "discard")}>
-          Discard hunk
+  const groups: StackGroup[] = [
+    {
+      id: "unstaged",
+      title: "Changes",
+      files: unstagedDiffs ?? [],
+      viewed: viewed.unstaged,
+      fileActions: (d) => {
+        const file = changeFor("unstaged", d);
+        if (!file) return null;
+        return (
+          <>
+            {file.kind !== "conflicted" && (
+              <Button size="sm" variant="danger" title="Discard changes (undoable)" onClick={() => discardFiles([file])}>
+                Discard
+              </Button>
+            )}
+            <Button size="sm" onClick={() => act(() => stage(path, [file.path]))}>
+              {file.kind === "conflicted" ? "Mark resolved" : "Stage"}
+            </Button>
+          </>
+        );
+      },
+      // Untracked files are staged whole; their "diff" is the full new file.
+      hunkActions: (d, hunk) =>
+        d.status === "?" ? null : (
+          <>
+            <Button size="sm" variant="danger" onClick={() => hunkAction(d, hunk, "discard")}>
+              Discard hunk
+            </Button>
+            <Button size="sm" onClick={() => hunkAction(d, hunk, "stage")}>
+              Stage hunk
+            </Button>
+          </>
+        ),
+      loadDeferred: (d) => fileDiff(path, d.path, null, d.status === "?" ? "untracked" : "unstaged"),
+    },
+    {
+      id: "staged",
+      title: "Staged",
+      files: stagedDiffs ?? [],
+      viewed: viewed.staged,
+      fileActions: (d) => {
+        const file = changeFor("staged", d);
+        return (
+          file && (
+            <Button size="sm" onClick={() => act(() => unstage(path, unstagePaths([file])))}>
+              Unstage
+            </Button>
+          )
+        );
+      },
+      hunkActions: (d, hunk) => (
+        <Button size="sm" onClick={() => hunkAction(d, hunk, "unstage")}>
+          Unstage hunk
         </Button>
-        <Button size="sm" onClick={() => hunkAction(hunk, "stage")}>
-          Stage hunk
-        </Button>
-      </>
-    ) : source === "staged" ? (
-      <Button size="sm" onClick={() => hunkAction(hunk, "unstage")}>
-        Unstage hunk
-      </Button>
-    ) : null;
+      ),
+      loadDeferred: (d) => fileDiff(path, d.path, d.origPath, "staged"),
+    },
+  ];
+
+  const viewedNote = (list: ListKind) => (viewed[list].count > 0 ? ` · ${viewed[list].count} viewed` : "");
 
   const stageable = lists.unstaged.filter((f) => f.kind !== "conflicted");
   const discardable = lists.unstaged.filter((f) => f.kind !== "conflicted");
@@ -197,7 +244,7 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
         <aside className="flex min-h-0 flex-col border-r border-zinc-200 dark:border-zinc-800">
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             <Section
-              title={`Changes (${lists.unstaged.length})`}
+              title={`Changes (${lists.unstaged.length})${viewedNote("unstaged")}`}
               actions={
                 <>
                   {foldButton("unstaged")}
@@ -217,16 +264,17 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
               <FileList
                 list="unstaged"
                 files={lists.unstaged}
-                selected={selection?.list === "unstaged" ? selection.path : null}
+                current={currentIn("unstaged")}
+                isViewed={viewed.unstaged.isViewed}
                 collapsed={collapsed.unstaged}
                 onToggleFolder={toggleFolder("unstaged")}
-                onSelect={(f) => setChosen({ list: "unstaged", path: f.path })}
+                onSelect={jumpTo("unstaged")}
                 onStage={(targets) => act(() => stage(path, targets.map((f) => f.path)))}
                 onDiscard={discardFiles}
               />
             </Section>
             <Section
-              title={`Staged (${lists.staged.length})`}
+              title={`Staged (${lists.staged.length})${viewedNote("staged")}`}
               actions={
                 <>
                   {foldButton("staged")}
@@ -243,10 +291,11 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
               <FileList
                 list="staged"
                 files={lists.staged}
-                selected={selection?.list === "staged" ? selection.path : null}
+                current={currentIn("staged")}
+                isViewed={viewed.staged.isViewed}
                 collapsed={collapsed.staged}
                 onToggleFolder={toggleFolder("staged")}
-                onSelect={(f) => setChosen({ list: "staged", path: f.path })}
+                onSelect={jumpTo("staged")}
                 onUnstage={(targets) => act(() => unstage(path, unstagePaths(targets)))}
               />
             </Section>
@@ -276,26 +325,17 @@ export function WorktreeDetail({ repo, summary, version, onBack, onChanged }: Pr
           </div>
         </aside>
 
-        <main className="min-h-0 overflow-y-auto">
-          {selectedFile ? (
-            <>
-              <div className="sticky top-0 z-10 border-b border-zinc-200 bg-zinc-50 px-3 py-1.5 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-950">
-                {selectedFile.origPath && source === "staged" && (
-                  <span className="text-zinc-400">{selectedFile.origPath} → </span>
-                )}
-                {selectedFile.path}
-                <span className="ml-2 font-sans text-zinc-400">{source}</span>
-              </div>
-              {diffError ? (
-                <p className="p-4 text-sm text-red-600">{diffError}</p>
-              ) : diff ? (
-                <DiffView diff={diff} path={selectedFile.path} hunkActions={hunkActions} />
-              ) : (
-                <p className="p-4 text-sm text-zinc-500">Loading…</p>
-              )}
-            </>
+        <main className="flex min-h-0 flex-col">
+          {diffError && <p className="p-4 text-sm text-red-600">{diffError}</p>}
+          {diffs === null && !diffError ? (
+            <p className="p-4 text-sm text-zinc-500">Loading…</p>
           ) : (
-            <p className="p-6 text-sm text-zinc-500">Working tree clean. Nothing to review.</p>
+            <DiffStack
+              ref={stack}
+              groups={groups}
+              onCurrent={setCurrent}
+              empty={<p className="p-6 text-sm text-zinc-500">Working tree clean. Nothing to review.</p>}
+            />
           )}
         </main>
       </div>

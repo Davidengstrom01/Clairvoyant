@@ -5,11 +5,13 @@ import type {
   DiffSource,
   FileDiff,
   HunkAction,
+  PathDiff,
   RegisteredRepo,
   RepoOverview,
   Settings,
   Stash,
   TrashEntry,
+  WorktreeDiffs,
   WorktreeSummary,
 } from "./types";
 
@@ -32,6 +34,7 @@ export const fetchRepo = (repo: string) => invoke<void>("fetch", { repo });
 // Pending changes
 export const fileDiff = (worktree: string, path: string, origPath: string | null, source: DiffSource) =>
   invoke<FileDiff>("file_diff", { worktree, path, origPath, source });
+export const worktreeDiffs = (worktree: string) => invoke<WorktreeDiffs>("worktree_diffs", { worktree });
 export const stage = (worktree: string, paths: string[]) => invoke<void>("stage", { worktree, paths });
 export const unstage = (worktree: string, paths: string[]) =>
   invoke<void>("unstage", { worktree, paths });
@@ -68,6 +71,8 @@ export const switchBranch = (worktree: string, name: string, remote: boolean) =>
   invoke<void>("switch_branch", { worktree, name, remote });
 export const compare = (repo: string, base: string, head: string) =>
   invoke<Comparison>("compare", { repo, base, head });
+export const compareDiffs = (repo: string, base: string, head: string) =>
+  invoke<PathDiff[]>("compare_diffs", { repo, base, head });
 export const compareDiff = (repo: string, base: string, head: string, path: string) =>
   invoke<FileDiff>("compare_diff", { repo, base, head, path });
 

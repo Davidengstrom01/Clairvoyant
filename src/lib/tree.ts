@@ -73,3 +73,8 @@ function collect<T>(nodes: TreeNode<T>[]): T[] {
 export function folderPaths<T>(nodes: TreeNode<T>[]): string[] {
   return nodes.flatMap((n) => (n.kind === "folder" ? [n.path, ...folderPaths(n.children)] : []));
 }
+
+/** Items in the order the tree shows them, for lists that must scroll in step with it. */
+export function flattenTree<T>(nodes: TreeNode<T>[]): T[] {
+  return nodes.flatMap((n) => (n.kind === "folder" ? flattenTree(n.children) : [n.item]));
+}

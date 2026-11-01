@@ -98,6 +98,8 @@ src/components/     dashboard, detail/, branches/, dialogs/
 - [x] Collapsible folder tree (compact folders, per-folder stage/unstage/discard) in file lists and compare
 - [x] Syntax-coloured diffs (Shiki, JS regex engine, grammars loaded on demand, github light/dark)
 - [x] Light / Dark / System theme switch; also themes the window title bar and native dialogs
+- [x] Review pane: every file's diff stacked in one scroll (one batched `git diff` per side, paired with `--name-status -z`), tree click jumps, scroll-spy highlights the tree
+- [x] "Viewed" marks per file (local storage, keyed by diff fingerprint so new edits un-mark)
 
 ### Out of scope
 

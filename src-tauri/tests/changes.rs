@@ -312,3 +312,108 @@ fn crlf_hunks_round_trip() {
 
     assert_eq!(repo.git(&["show", ":win.txt"]), "a\r\nB\r\nc\r\n");
 }
+
+fn find_diff<'a>(diffs: &'a [git::PathDiff], path: &str) -> &'a git::PathDiff {
+    diffs.iter().find(|d| d.path == path).unwrap_or_else(|| {
+        panic!(
+            "{path} not in {:?}",
+            diffs.iter().map(|d| &d.path).collect::<Vec<_>>()
+        )
+    })
+}
+
+#[test]
+fn worktree_diffs_cover_every_kind_of_change_in_one_call() {
+    let repo = repo_with_numbered_file();
+    repo.write("gone.txt", "bye\n");
+    repo.write("old name.md", "same\n");
+    fs::write(repo.root.join("img.bin"), [0u8, 1, 2]).unwrap();
+    repo.commit_all("more files");
+
+    repo.write("list.txt", &numbered(|n| (n == 1).then(|| "FIRST".into())));
+    git::stage(&repo.root, &["list.txt"]).unwrap();
+    repo.write(
+        "list.txt",
+        &numbered(|n| match n {
+            1 => Some("FIRST".into()),
+            20 => Some("LAST".into()),
+            _ => None,
+        }),
+    );
+    fs::remove_file(repo.root.join("gone.txt")).unwrap();
+    repo.git(&["mv", "old name.md", "new name.md"]);
+    fs::write(repo.root.join("img.bin"), [9u8, 0, 9]).unwrap();
+    repo.write("notes/résumé draft.txt", "untracked\n");
+
+    let diffs = git::worktree_diffs(&repo.root).unwrap();
+
+    let unstaged: Vec<&str> = diffs.unstaged.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        unstaged,
+        vec!["gone.txt", "img.bin", "list.txt", "notes/résumé draft.txt"]
+    );
+    assert_eq!(find_diff(&diffs.unstaged, "gone.txt").status, "D");
+    assert!(find_diff(&diffs.unstaged, "img.bin").diff.binary);
+    let untracked = find_diff(&diffs.unstaged, "notes/résumé draft.txt");
+    assert_eq!(
+        (untracked.status.as_str(), untracked.diff.hunks.len()),
+        ("?", 1)
+    );
+
+    // Each side of a partly staged file has only its own change.
+    let text = |d: &git::PathDiff| -> Vec<String> {
+        d.diff
+            .hunks
+            .iter()
+            .flat_map(|h| h.lines.iter())
+            .filter(|l| l.kind != LineKind::Context)
+            .map(|l| l.text.clone())
+            .collect()
+    };
+    assert_eq!(
+        text(find_diff(&diffs.unstaged, "list.txt")),
+        vec!["line 20", "LAST"]
+    );
+    assert_eq!(
+        text(find_diff(&diffs.staged, "list.txt")),
+        vec!["line 1", "FIRST"]
+    );
+
+    let renamed = find_diff(&diffs.staged, "new name.md");
+    assert_eq!(
+        (renamed.status.as_str(), renamed.orig_path.as_deref()),
+        ("R", Some("old name.md"))
+    );
+
+    // The batch gives the same result as diffing each file on its own.
+    let single = git::file_diff(&repo.root, "list.txt", None, DiffSource::Unstaged).unwrap();
+    assert_eq!(find_diff(&diffs.unstaged, "list.txt").diff, single);
+}
+
+#[test]
+fn worktree_diffs_include_conflicted_files() {
+    let repo = TestRepo::new();
+    repo.git(&["checkout", "-b", "other"]);
+    repo.write("README.md", "theirs\n");
+    repo.commit_all("theirs");
+    repo.git(&["checkout", "main"]);
+    repo.write("README.md", "ours\n");
+    repo.commit_all("ours");
+    common::try_git(&repo.root, &["merge", "other"]);
+
+    let diffs = git::worktree_diffs(&repo.root).unwrap();
+
+    let conflict = find_diff(&diffs.unstaged, "README.md");
+    assert_eq!(conflict.status, "U");
+    assert!(conflict.diff.combined);
+}
+
+#[test]
+fn clean_worktree_has_no_diffs() {
+    let repo = TestRepo::new();
+
+    assert_eq!(
+        git::worktree_diffs(&repo.root).unwrap(),
+        git::WorktreeDiffs::default()
+    );
+}
