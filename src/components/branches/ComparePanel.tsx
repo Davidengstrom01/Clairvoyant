@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { compare, compareDiff, compareDiffs } from "../../lib/api";
+import { defaultBranch } from "../../lib/branches";
 import { plural, relativeTime } from "../../lib/format";
 import type { Branch, Comparison, PathDiff } from "../../lib/types";
 import { useViewed } from "../../lib/viewed";
@@ -20,7 +21,7 @@ export function ComparePanel({
   branches: Branch[];
   onClose: () => void;
 }) {
-  const [base, setBase] = useState(() => branches.find((b) => b.isDefault && b.name !== head)?.name ?? "");
+  const [base, setBase] = useState(() => defaultBranch(branches.filter((b) => b.name !== head))?.name ?? "");
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [diffs, setDiffs] = useState<PathDiff[] | null>(null);
   const [error, setError] = useState<string | null>(null);

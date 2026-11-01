@@ -33,6 +33,10 @@ fn branch_list_knows_worktrees_merges_and_distance_from_default() {
     let main = find(&branches, "main");
     assert_eq!(main.worktree.as_deref(), Some(repo.root.as_path()));
     assert_eq!(main.upstream.as_deref(), Some("origin/main"));
+    assert!(
+        main.is_default && !main.merged,
+        "tracking the default makes main a default, not merged"
+    );
     let feature = find(&branches, "feature");
     assert_eq!(feature.worktree.as_deref(), Some(linked.as_path()));
     assert_eq!(

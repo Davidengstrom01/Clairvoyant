@@ -26,6 +26,9 @@ export interface DiffStackHandle {
 
 export const stackKey = (groupId: string, path: string) => `${groupId}:${path}`;
 
+/** Same letters as the tree: git reports untracked files as `?`, the tree shows U. */
+const letter = (file: PathDiff) => (file.status === "?" ? "U" : file.status);
+
 interface Props {
   groups: StackGroup[];
   /** The file whose section is at the top of the pane, for highlighting it in the tree. */
@@ -135,7 +138,7 @@ export function DiffStack({ groups, onCurrent, empty, ref }: Props) {
                         >
                           ▶
                         </button>
-                        <span className={`w-3 text-center font-mono text-xs ${letterColor[file.status] ?? ""}`}>{file.status}</span>
+                        <span className={`w-3 text-center font-mono text-xs ${letterColor[letter(file)] ?? ""}`}>{letter(file)}</span>
                         <span className={`min-w-0 truncate font-mono text-xs ${viewed ? "text-zinc-400" : ""}`} title={file.path}>
                           {file.origPath && <span className="text-zinc-400">{file.origPath} → </span>}
                           {file.path}

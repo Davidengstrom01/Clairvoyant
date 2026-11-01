@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultFilter, filterBranches, localName } from "./branches";
+import { defaultBranch, defaultFilter, filterBranches, localName } from "./branches";
 import type { Branch } from "./types";
 
 const branch = (overrides: Partial<Branch>): Branch => ({
@@ -46,5 +46,15 @@ describe("localName", () => {
   it("drops the remote", () => {
     expect(localName("origin/feature/x")).toBe("feature/x");
     expect(localName("main")).toBe("main");
+  });
+});
+
+describe("defaultBranch", () => {
+  it("prefers the remote default over the local branch tracking it", () => {
+    const local = branch({ name: "main", isDefault: true });
+    const remote = branch({ name: "origin/main", remote: true, isDefault: true });
+    expect(defaultBranch([local, remote])).toBe(remote);
+    expect(defaultBranch([local])).toBe(local);
+    expect(defaultBranch([branch({})])).toBeUndefined();
   });
 });

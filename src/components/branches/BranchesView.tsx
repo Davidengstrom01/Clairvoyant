@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { branches as loadBranches, deleteBranch } from "../../lib/api";
-import { defaultFilter, filterBranches, type BranchFilter } from "../../lib/branches";
+import { defaultBranch, defaultFilter, filterBranches, type BranchFilter } from "../../lib/branches";
 import { relativeTime } from "../../lib/format";
 import { useGuard } from "../../lib/notify";
 import type { Branch, RegisteredRepo } from "../../lib/types";
@@ -36,7 +36,7 @@ export function BranchesView({ repos, repo, onRepoChange, version, onChanged, on
   useEffect(() => setComparing(null), [repo]);
 
   const shown = filterBranches(branches ?? [], filter);
-  const defaultName = branches?.find((b) => b.isDefault)?.name;
+  const defaultName = defaultBranch(branches ?? [])?.name;
 
   async function remove(branch: Branch) {
     const ok = await ask(`Delete branch ${branch.name}?`, { title: "Delete branch", kind: "warning", okLabel: "Delete" });

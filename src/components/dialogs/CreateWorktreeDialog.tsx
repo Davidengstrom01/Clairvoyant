@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { addWorktree, branches as loadBranches, suggestWorktreePath } from "../../lib/api";
-import { localName } from "../../lib/branches";
+import { defaultBranch, localName } from "../../lib/branches";
 import { useGuard } from "../../lib/notify";
 import type { Branch } from "../../lib/types";
 import { Button, Field, Modal, inputClass } from "../ui";
@@ -28,7 +28,7 @@ export function CreateWorktreeDialog({ repo, branch, onClose, onCreated }: Props
     guard(() => loadBranches(repo)).then((list) => {
       if (!list) return;
       setAll(list);
-      setStart((s) => s || list.find((b) => b.isDefault)?.name || "HEAD");
+      setStart((s) => s || defaultBranch(list)?.name || "HEAD");
     });
   }, [repo, guard]);
 

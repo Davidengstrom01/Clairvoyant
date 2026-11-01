@@ -137,7 +137,10 @@ pub fn branches(repo: &Path) -> Result<Vec<Branch>> {
         if f[0].starts_with("refs/remotes/") && f[0].ends_with("/HEAD") {
             continue;
         }
-        let is_default = default.as_deref() == Some(f[1]);
+        // The local branch tracking the default (local `main` for `origin/main`)
+        // is a default too: never a cleanup candidate.
+        let is_default = default.is_some()
+            && (default.as_deref() == Some(f[1]) || default.as_deref() == Some(f[3]));
         branches.push(Branch {
             name: f[1].to_owned(),
             remote: f[0].starts_with("refs/remotes/"),

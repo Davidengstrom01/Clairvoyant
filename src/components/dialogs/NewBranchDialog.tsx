@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createBranch } from "../../lib/api";
+import { defaultBranch } from "../../lib/branches";
 import { useGuard } from "../../lib/notify";
 import type { Branch } from "../../lib/types";
 import { Button, Field, Modal, inputClass } from "../ui";
@@ -17,7 +18,7 @@ export function NewBranchDialog({
 }) {
   const guard = useGuard();
   const [name, setName] = useState("");
-  const [start, setStart] = useState(branches.find((b) => b.isDefault)?.name ?? "HEAD");
+  const [start, setStart] = useState(defaultBranch(branches)?.name ?? "HEAD");
 
   async function submit() {
     const done = await guard(() => createBranch(repo, name.trim(), start));
