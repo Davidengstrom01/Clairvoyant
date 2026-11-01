@@ -12,6 +12,8 @@ Clairvoyant is a companion to git, not a replacement: it runs the `git` CLI
 under the hood, so your hooks, config and signing all behave as usual. It
 never pushes or pulls; the only network call is a Fetch you click yourself.
 
+![Clairvoyant dashboard: one card per worktree with branch, change counts, ahead/behind and warnings](docs/screenshots/dashboard.png)
+
 ## Features
 
 - **Dashboard** of every worktree in your registered repos: branch, staged /
@@ -30,6 +32,25 @@ never pushes or pulls; the only network call is a Fetch you click yourself.
 - Light / Dark / System theme.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the design decisions and roadmap.
+
+## Screenshots
+
+**Review a worktree.** Every changed file in one scroll, with a folder tree to
+jump around, per-hunk stage/discard and the commit box.
+
+![Worktree review: folder tree on the left, syntax-coloured diffs of every changed file on the right](docs/screenshots/review.png)
+
+**Viewed marks.** Tick files off as you review; they fold away and get a check
+in the tree. Staged changes sit in their own group.
+
+![A viewed file folded with a check mark in the tree, and the Staged group with Unstage hunk buttons](docs/screenshots/viewed.png)
+
+**Branches and Compare.** See how far a branch is from the default branch and
+review what its pull request would contain, without opening one.
+
+![Branches list filtered to one branch, with the Compare panel showing its commits and file diffs](docs/screenshots/compare.png)
+
+The screenshots use made-up demo repositories.
 
 ## Install
 
@@ -160,6 +181,14 @@ npm run tauri build    # build the .app bundle
 
 The Rust tests create throwaway git repositories, so they need `git` but
 nothing else.
+
+To run the app on a separate list of repos (for demos or screenshots) without
+touching your own, point `CLAIRVOYANT_CONFIG_DIR` at a folder holding a
+`repos.json`:
+
+```bash
+open -n -a src-tauri/target/release/bundle/macos/Clairvoyant.app --env CLAIRVOYANT_CONFIG_DIR=/tmp/demo-config
+```
 
 ## License
 

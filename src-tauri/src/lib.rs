@@ -21,7 +21,13 @@ pub fn run() {
                 git::init_env(vec![("PATH".into(), path.clone())]);
             }
 
-            let config_file = app.path().app_config_dir()?.join("repos.json");
+            // CLAIRVOYANT_CONFIG_DIR runs the app on a separate repo list,
+            // e.g. demo repos for screenshots, without touching your own.
+            let config_dir = match std::env::var_os("CLAIRVOYANT_CONFIG_DIR") {
+                Some(dir) => std::path::PathBuf::from(dir),
+                None => app.path().app_config_dir()?,
+            };
+            let config_file = config_dir.join("repos.json");
             let config = config::Config::load(&config_file)?;
 
             let handle = app.handle().clone();
