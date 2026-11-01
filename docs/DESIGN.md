@@ -24,7 +24,7 @@ the baseline; change them deliberately, not by drift.
 | Frontend | React + TypeScript + Tailwind (Vite) |
 | Backend | Thin Rust layer that shells out to `git` and parses porcelain output |
 | Git access | `git` CLI only (no libgit2/gitoxide), so hooks, config, signing and credential helpers behave exactly like the terminal |
-| App config | `~/Library/Application Support/dev.clairvoyant.app/repos.json` |
+| App config | `~/Library/Application Support/dev.clairvoyant.desktop/repos.json` |
 
 Every git call sets `GIT_OPTIONAL_LOCKS=0` (the dashboard never takes
 `index.lock` while you or an agent run git in the same worktree),
